@@ -1,0 +1,8 @@
+# Environment files containing sensitive tokens/keys
+.env
+.env.local
+.env.*.local
+*.env
+
+# Optional: Ignore log files or temporary outputs if your script generates any
+*.log

@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -euo pipefail
+
+BACKUP_DIR="/home/allanregistos/backup"
+PGHOST="192.168.3.161"
+PGPORT="5432"
+PGUSER="postgres"
+
+TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
+BACKUP_PATH="${BACKUP_DIR}/${TIMESTAMP}"
+
+mkdir -p "$BACKUP_PATH"
+
+echo "[$(date)] Starting PostgreSQL backup..."
+
+# Backup roles, permissions, and other global objects
+pg_dumpall \
+    --host="$PGHOST" \
+    --port="$PGPORT" \
+    --username="$PGUSER" \
+    --globals-only \
+    > "${BACKUP_PATH}/globals.sql"
+
+# Get all non-template databases
+databases=$(psql \
+    --host="$PGHOST" \
+    --port="$PGPORT" \
+    --username="$PGUSER" \
+    --tuples-only \
+    --no-align \
+    --command="SELECT datname FROM pg_database WHERE datallowconn = true AND datistemplate = false;")
+
+# Backup each database
+while IFS= read -r db; do
+    [ -z "$db" ] && continue
+
+    echo "Backing up database: $db"
+
+    pg_dump \
+        --host="$PGHOST" \
+        --port="$PGPORT" \
+        --username="$PGUSER" \
+        --format=custom \
+        --file="${BACKUP_PATH}/${db}.dump" \
+        "$db"
+
+done <<< "$databases"
+
+# Create compressed archive
+tar -czf "${BACKUP_DIR}/postgresql_${TIMESTAMP}.tar.gz" \
+    -C "$BACKUP_DIR" "$TIMESTAMP"
+
+# Remove temporary uncompressed directory
+rm -rf "$BACKUP_PATH"
+
+# Delete backups older than 14 days
+find "$BACKUP_DIR" \
+    -type f \
+    -name 'postgresql_*.tar.gz' \
+    -mtime +14 \
+    -delete
+
+# Ensure backup files belong to allanregistos
+chown allanregistos:allanregistos \
+    "${BACKUP_DIR}/postgresql_${TIMESTAMP}.tar.gz"
+
+echo "[$(date)] PostgreSQL backup completed successfully."
